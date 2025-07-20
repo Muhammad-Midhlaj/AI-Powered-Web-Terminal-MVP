@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Terminal as XTerm } from 'xterm';
+import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { useSocketStore } from '../stores/socketStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { TerminalDimensions } from '@ai-terminal/shared';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 
 interface TerminalProps {
   sessionId: string;
@@ -34,7 +34,7 @@ export function Terminal({ sessionId, className = '' }: TerminalProps) {
         foreground: '#e2e8f0',
         cursor: '#38bdf8',
         cursorAccent: '#0f172a',
-        selection: '#334155',
+        selectionBackground: '#334155',
         black: '#1e293b',
         red: '#ef4444',
         green: '#22c55e',
