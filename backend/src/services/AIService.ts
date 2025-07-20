@@ -123,7 +123,7 @@ export class AIService {
 
     } catch (error) {
       console.error('AI translation error:', error);
-      throw new Error(`AI service error: ${error.message}`);
+      throw new Error(`AI service error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -197,7 +197,7 @@ export class AIService {
 
     } catch (error) {
       console.error('AI explanation error:', error);
-      throw new Error(`AI service error: ${error.message}`);
+      throw new Error(`AI service error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

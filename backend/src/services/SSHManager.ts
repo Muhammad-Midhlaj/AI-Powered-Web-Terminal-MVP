@@ -97,7 +97,7 @@ export class SSHManager extends EventEmitter {
 
     } catch (error) {
       connection.status = SSHConnectionStatus.ERROR;
-      this.emit('statusChange', connectionId, SSHConnectionStatus.ERROR, error.message);
+      this.emit('statusChange', connectionId, SSHConnectionStatus.ERROR, error instanceof Error ? error.message : 'Unknown error');
       this.connections.delete(connectionId);
       throw error;
     }
@@ -247,7 +247,7 @@ export class SSHManager extends EventEmitter {
 
       } catch (error) {
         connection.status = SSHConnectionStatus.ERROR;
-        this.emit('statusChange', connectionId, SSHConnectionStatus.ERROR, error.message);
+        this.emit('statusChange', connectionId, SSHConnectionStatus.ERROR, error instanceof Error ? error.message : 'Unknown error');
       }
     }, 5000); // Wait 5 seconds before reconnecting
   }

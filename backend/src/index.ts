@@ -71,8 +71,8 @@ io.use((socket, next) => {
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as any;
-    socket.userId = decoded.userId;
-    socket.userEmail = decoded.email;
+    (socket as any).userId = decoded.userId;
+    (socket as any).userEmail = decoded.email;
     next();
   } catch (err) {
     next(new Error('Authentication error: Invalid token'));
@@ -81,13 +81,14 @@ io.use((socket, next) => {
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.userEmail} (${socket.id})`);
+  const authenticatedSocket = socket as any;
+  console.log(`User connected: ${authenticatedSocket.userEmail} (${socket.id})`);
   
-  const socketHandler = new SocketHandler(socket, sshManager, aiService);
+  const socketHandler = new SocketHandler(authenticatedSocket, sshManager, aiService);
   socketHandler.initialize();
 
   socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.userEmail} (${socket.id})`);
+    console.log(`User disconnected: ${authenticatedSocket.userEmail} (${socket.id})`);
     socketHandler.cleanup();
   });
 });
