@@ -1,48 +1,61 @@
 import { create } from 'zustand';
-import { SSHConnectionProfile } from '@ai-terminal/shared';
+import { SSHConnectionProfile } from '../../../shared/src/types';
 import { toast } from '../components/ui/toaster';
+import { API_ENDPOINTS } from '../config/api';
+import { useAuthStore } from './authStore';
 
-interface SSHProfileState {
+interface SSHState {
   profiles: SSHConnectionProfile[];
+  selectedProfile: SSHConnectionProfile | null;
   isLoading: boolean;
   error: string | null;
   
   // Actions
-  createProfile: (profileData: { 
-    profile: Partial<SSHConnectionProfile>;
-    credentials: { password?: string; privateKey?: string; passphrase?: string; };
+  setSelectedProfile: (profile: SSHConnectionProfile | null) => void;
+  createProfile: (data: {
+    profile: Omit<SSHConnectionProfile, 'id' | 'createdAt' | 'lastUsed' | 'isActive'>;
+    credentials: {
+      password?: string;
+      privateKey?: string;
+      passphrase?: string;
+    };
   }) => Promise<void>;
   loadProfiles: () => Promise<void>;
-  deleteProfile: (profileId: string) => Promise<void>;
-  clearError: () => void;
+  deleteProfile: (id: string) => Promise<void>;
+  updateProfile: (id: string, updates: Partial<SSHConnectionProfile>) => Promise<void>;
 }
 
-export const useSSHStore = create<SSHProfileState>((set, get) => ({
+export const useSSHStore = create<SSHState>((set, get) => ({
   profiles: [],
+  selectedProfile: null,
   isLoading: false,
   error: null,
 
-  createProfile: async (profileData) => {
+  setSelectedProfile: (profile) => {
+    set({ selectedProfile: profile });
+  },
+
+  createProfile: async (data) => {
     set({ isLoading: true, error: null });
     
     try {
-      const token = localStorage.getItem('token');
+      const { token } = useAuthStore.getState();
       if (!token) {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch('http://localhost:5000/api/profiles', {
+      const response = await fetch(API_ENDPOINTS.profiles.create, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify(profileData)
+        body: JSON.stringify(data)
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create SSH profile');
+        throw new Error(errorData.error || 'Failed to create SSH connection');
       }
 
       const result = await response.json();
@@ -52,10 +65,10 @@ export const useSSHStore = create<SSHProfileState>((set, get) => ({
         await get().loadProfiles();
         toast.success('SSH connection created successfully!');
       } else {
-        throw new Error(result.error || 'Failed to create SSH profile');
+        throw new Error(result.error || 'Failed to create SSH connection');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       set({ error: errorMessage });
       toast.error(`Failed to create SSH connection: ${errorMessage}`);
       throw error;
@@ -68,12 +81,12 @@ export const useSSHStore = create<SSHProfileState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     try {
-      const token = localStorage.getItem('token');
+      const { token } = useAuthStore.getState();
       if (!token) {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch('http://localhost:5000/api/profiles', {
+      const response = await fetch(API_ENDPOINTS.profiles.list, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -92,24 +105,25 @@ export const useSSHStore = create<SSHProfileState>((set, get) => ({
         throw new Error(result.error || 'Failed to load SSH profiles');
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       set({ error: errorMessage });
       console.error('Failed to load SSH profiles:', error);
+      throw error;
     } finally {
       set({ isLoading: false });
     }
   },
 
-  deleteProfile: async (profileId: string) => {
+  deleteProfile: async (id) => {
     set({ isLoading: true, error: null });
     
     try {
-      const token = localStorage.getItem('token');
+      const { token } = useAuthStore.getState();
       if (!token) {
         throw new Error('No authentication token found');
       }
 
-      const response = await fetch(`http://localhost:5000/api/profiles/${profileId}`, {
+      const response = await fetch(API_ENDPOINTS.profiles.delete(id), {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -121,19 +135,15 @@ export const useSSHStore = create<SSHProfileState>((set, get) => ({
         throw new Error(errorData.error || 'Failed to delete SSH profile');
       }
 
-      const result = await response.json();
-      
-      if (result.success) {
-        // Remove the profile from the local state
-        set(state => ({
-          profiles: state.profiles.filter(p => p.id !== profileId)
-        }));
-        toast.success('SSH connection deleted successfully!');
-      } else {
-        throw new Error(result.error || 'Failed to delete SSH profile');
-      }
+      // Remove from local state
+      set(state => ({
+        profiles: state.profiles.filter(p => p.id !== id),
+        selectedProfile: state.selectedProfile?.id === id ? null : state.selectedProfile
+      }));
+
+      toast.success('SSH connection deleted successfully!');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       set({ error: errorMessage });
       toast.error(`Failed to delete SSH connection: ${errorMessage}`);
       throw error;
@@ -142,7 +152,47 @@ export const useSSHStore = create<SSHProfileState>((set, get) => ({
     }
   },
 
-  clearError: () => {
-    set({ error: null });
-  }
+  updateProfile: async (id, updates) => {
+    set({ isLoading: true, error: null });
+    
+    try {
+      const { token } = useAuthStore.getState();
+      if (!token) {
+        throw new Error('No authentication token found');
+      }
+
+      const response = await fetch(API_ENDPOINTS.profiles.update(id), {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(updates)
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to update SSH profile');
+      }
+
+      // Update local state
+      set(state => ({
+        profiles: state.profiles.map(p => 
+          p.id === id ? { ...p, ...updates } : p
+        ),
+        selectedProfile: state.selectedProfile?.id === id 
+          ? { ...state.selectedProfile, ...updates }
+          : state.selectedProfile
+      }));
+
+      toast.success('SSH connection updated successfully!');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      set({ error: errorMessage });
+      toast.error(`Failed to update SSH connection: ${errorMessage}`);
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 })); 

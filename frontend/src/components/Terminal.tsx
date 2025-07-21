@@ -24,8 +24,19 @@ export function Terminal({ sessionId, className = '' }: TerminalProps) {
   
   const session = sessions.find(s => s.id === sessionId);
 
+  // Debug logging
+  console.log('Terminal Component Debug:', {
+    sessionId,
+    isConnected,
+    session,
+    isInitialized,
+    terminalRefCurrent: !!terminalRef.current
+  });
+
   useEffect(() => {
     if (!terminalRef.current || isInitialized) return;
+
+    console.log('Initializing Terminal for session:', sessionId);
 
     // Initialize xterm.js
     const xterm = new XTerm({
@@ -50,87 +61,102 @@ export function Terminal({ sessionId, className = '' }: TerminalProps) {
         brightBlue: '#60a5fa',
         brightMagenta: '#c084fc',
         brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
+        brightWhite: '#ffffff'
       },
       fontFamily: '"Fira Code", "Monaco", "Menlo", "Ubuntu Mono", monospace',
       fontSize: 14,
       lineHeight: 1.2,
       cursorBlink: true,
       cursorStyle: 'block',
-      allowTransparency: false,
-      scrollback: 10000,
-      rightClickSelectsWord: true,
-      macOptionIsMeta: true,
+      scrollback: 1000,
+      tabStopWidth: 4,
+      allowProposedApi: true
     });
 
-    // Add addons
+    // Initialize addons
     const fitAddon = new FitAddon();
     const webLinksAddon = new WebLinksAddon();
-
+    
     xterm.loadAddon(fitAddon);
     xterm.loadAddon(webLinksAddon);
 
-    // Try to load WebGL addon for better performance
+    // Try to load WebGL addon with fallback
     try {
       const webglAddon = new WebglAddon();
       xterm.loadAddon(webglAddon);
     } catch (error) {
-      console.warn('WebGL addon failed to load, fallback to canvas:', error);
+      console.warn('WebGL addon failed to load, falling back to canvas renderer:', error);
     }
 
     // Open terminal
     xterm.open(terminalRef.current);
-
-    // Fit terminal to container
-    fitAddon.fit();
-
+    
     // Store references
     xtermRef.current = xterm;
     fitAddonRef.current = fitAddon;
 
+    // Fit terminal to container
+    setTimeout(() => {
+      fitAddon.fit();
+    }, 100);
+
+    // Handle user input
+    xterm.onData((data: string) => {
+      if (socket?.connected) {
+        socket.emit('terminal:input', { sessionId, data });
+      }
+    });
+
+    // Handle terminal resize
+    xterm.onResize(({ cols, rows }) => {
+      if (socket?.connected) {
+        const dimensions: TerminalDimensions = { cols, rows };
+        socket.emit('terminal:resize', { sessionId, dimensions });
+      }
+    });
+
     setIsInitialized(true);
 
-    // Handle window resize
+    // Cleanup function
+    return () => {
+      xterm.dispose();
+      setIsInitialized(false);
+    };
+  }, [sessionId, socket]);
+
+  // Handle incoming terminal data from WebSocket
+  useEffect(() => {
+    if (!socket || !xtermRef.current) return;
+
+    const handleTerminalOutput = (data: { sessionId: string; data: string }) => {
+      if (data.sessionId === sessionId && xtermRef.current && data.data) {
+        console.log('Writing to terminal:', data.data);
+        xtermRef.current.write(data.data);
+      }
+    };
+
+    // Listen for terminal output
+    socket.on('terminal:output', handleTerminalOutput);
+
+    // Cleanup
+    return () => {
+      socket.off('terminal:output', handleTerminalOutput);
+    };
+  }, [socket, sessionId]);
+
+  // Handle window resize
+  useEffect(() => {
     const handleResize = () => {
-      if (fitAddon && isConnected) {
-        fitAddon.fit();
-        const dimensions: TerminalDimensions = {
-          cols: xterm.cols,
-          rows: xterm.rows
-        };
-        socket?.emit('terminal:resize', { sessionId, dimensions });
+      if (fitAddonRef.current) {
+        setTimeout(() => {
+          fitAddonRef.current?.fit();
+        }, 100);
       }
     };
 
     window.addEventListener('resize', handleResize);
-
-    // Handle terminal input
-    const handleData = (data: string) => {
-      if (isConnected && socket) {
-        socket.emit('terminal:input', { sessionId, input: data });
-      }
-    };
-
-    xterm.onData(handleData);
-
-    // Handle terminal output from socket
-    const handleOutput = (data: { sessionId: string; output: string }) => {
-      if (data.sessionId === sessionId) {
-        xterm.write(data.output);
-      }
-    };
-
-    socket?.on('terminal:output', handleOutput);
-
-    // Initial resize after connection
-    setTimeout(handleResize, 100);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      socket?.off('terminal:output', handleOutput);
-      xterm.dispose();
-    };
-  }, [sessionId, socket, isConnected, isInitialized]);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Handle focus
   useEffect(() => {
@@ -167,17 +193,15 @@ export function Terminal({ sessionId, className = '' }: TerminalProps) {
   const handleClear = () => {
     if (xtermRef.current) {
       xtermRef.current.clear();
-      socket?.emit('terminal:clear', sessionId);
     }
   };
 
-  const handleFit = () => {
-    if (fitAddonRef.current && isConnected) {
+  const handleResize = () => {
+    if (fitAddonRef.current) {
       fitAddonRef.current.fit();
-      const dimensions: TerminalDimensions = {
-        cols: xtermRef.current?.cols || 80,
-        rows: xtermRef.current?.rows || 24
-      };
+      const cols = xtermRef.current?.cols || 80;
+      const rows = xtermRef.current?.rows || 24;
+      const dimensions: TerminalDimensions = { cols, rows };
       socket?.emit('terminal:resize', { sessionId, dimensions });
     }
   };
@@ -199,7 +223,7 @@ export function Terminal({ sessionId, className = '' }: TerminalProps) {
         
         <div className="flex items-center gap-2">
           <button
-            onClick={handleFit}
+            onClick={handleResize}
             className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
             title="Fit terminal to window"
           >

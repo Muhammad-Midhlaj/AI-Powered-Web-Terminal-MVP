@@ -25,6 +25,8 @@ export class SSHManager extends EventEmitter {
 
   constructor() {
     super();
+    // Increase max listeners to handle multiple SSH connections
+    this.setMaxListeners(50);
     this.startKeepAliveCheck();
   }
 

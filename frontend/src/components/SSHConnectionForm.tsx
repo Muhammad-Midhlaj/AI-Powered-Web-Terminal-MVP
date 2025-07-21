@@ -1,19 +1,17 @@
 import { useState } from 'react';
-import { SSHConnectionProfile } from '@ai-terminal/shared';
-
-interface SSHConnectionFormData {
-  profile: Partial<SSHConnectionProfile>;
-  credentials: {
-    password?: string;
-    privateKey?: string;
-    passphrase?: string;
-  };
-}
+import { SSHConnectionProfile } from '../../../shared/src/types';
 
 interface SSHConnectionFormProps {
-  onSubmit: (data: SSHConnectionFormData) => Promise<void>;
+  onSubmit: (data: { 
+    profile: Omit<SSHConnectionProfile, 'id' | 'createdAt' | 'lastUsed' | 'isActive'>; 
+    credentials: {
+      password?: string;
+      privateKey?: string;
+      passphrase?: string;
+    }
+  }) => Promise<void>;
   onCancel: () => void;
-  isLoading?: boolean;
+  isLoading: boolean;
 }
 
 export function SSHConnectionForm({ onSubmit, onCancel, isLoading }: SSHConnectionFormProps) {
@@ -41,13 +39,17 @@ export function SSHConnectionForm({ onSubmit, onCancel, isLoading }: SSHConnecti
       newErrors.host = 'Host is required';
     }
 
-    if (!formData.username.trim()) {
-      newErrors.username = 'Username is required';
+    if (!formData.port.trim()) {
+      newErrors.port = 'Port is required';
+    } else {
+      const port = parseInt(formData.port);
+      if (isNaN(port) || port < 1 || port > 65535) {
+        newErrors.port = 'Port must be between 1 and 65535';
+      }
     }
 
-    const port = parseInt(formData.port);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      newErrors.port = 'Port must be between 1 and 65535';
+    if (!formData.username.trim()) {
+      newErrors.username = 'Username is required';
     }
 
     if (formData.authMethod === 'password' && !formData.password) {
@@ -111,171 +113,166 @@ export function SSHConnectionForm({ onSubmit, onCancel, isLoading }: SSHConnecti
           </div>
           <p className="text-terminal-muted mt-2">Configure a new SSH connection to your server</p>
         </div>
-          
-          <form onSubmit={handleSubmit} className="space-y-4">
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="name" className="form-label">
+              Connection Name
+            </label>
+            <input
+              id="name"
+              name="name"
+              type="text"
+              className="form-input"
+              placeholder="My Server"
+              value={formData.name}
+              onChange={handleInputChange}
+            />
+            {errors.name && <p className="text-red-400 text-sm mt-1">{errors.name}</p>}
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="name" className="form-label">
-                Connection Name
+              <label htmlFor="host" className="form-label">
+                Host
               </label>
               <input
-                id="name"
-                name="name"
+                id="host"
+                name="host"
                 type="text"
                 className="form-input"
-                placeholder="My Server"
-                value={formData.name}
+                placeholder="example.com"
+                value={formData.host}
                 onChange={handleInputChange}
               />
-              {errors.name && <p className="text-red-400 text-sm mt-1">{errors.name}</p>}
+              {errors.host && <p className="text-red-400 text-sm mt-1">{errors.host}</p>}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label htmlFor="port" className="form-label">
+                Port
+              </label>
+              <input
+                id="port"
+                name="port"
+                type="number"
+                className="form-input"
+                placeholder="22"
+                value={formData.port}
+                onChange={handleInputChange}
+              />
+              {errors.port && <p className="text-red-400 text-sm mt-1">{errors.port}</p>}
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="username" className="form-label">
+              Username
+            </label>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              className="form-input"
+              placeholder="root"
+              value={formData.username}
+              onChange={handleInputChange}
+            />
+            {errors.username && <p className="text-red-400 text-sm mt-1">{errors.username}</p>}
+          </div>
+
+          <div>
+            <label htmlFor="authMethod" className="form-label">
+              Authentication Method
+            </label>
+            <select
+              id="authMethod"
+              name="authMethod"
+              className="form-input"
+              value={formData.authMethod}
+              onChange={handleInputChange}
+            >
+              <option value="password">Password</option>
+              <option value="publicKey">Private Key</option>
+            </select>
+          </div>
+
+          {formData.authMethod === 'password' ? (
+            <div>
+              <label htmlFor="password" className="form-label">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                className="form-input"
+                placeholder="Enter password"
+                value={formData.password}
+                onChange={handleInputChange}
+              />
+              {errors.password && <p className="text-red-400 text-sm mt-1">{errors.password}</p>}
+            </div>
+          ) : (
+            <>
               <div>
-                <label htmlFor="host" className="form-label">
-                  Host
+                <label htmlFor="privateKey" className="form-label">
+                  Private Key
                 </label>
-                <input
-                  id="host"
-                  name="host"
-                  type="text"
+                <textarea
+                  id="privateKey"
+                  name="privateKey"
+                  rows={4}
                   className="form-input"
-                  placeholder="192.168.1.100"
-                  value={formData.host}
+                  placeholder="-----BEGIN PRIVATE KEY-----..."
+                  value={formData.privateKey}
                   onChange={handleInputChange}
                 />
-                {errors.host && <p className="text-red-400 text-sm mt-1">{errors.host}</p>}
+                {errors.privateKey && <p className="text-red-400 text-sm mt-1">{errors.privateKey}</p>}
               </div>
 
               <div>
-                <label htmlFor="port" className="form-label">
-                  Port
+                <label htmlFor="passphrase" className="form-label">
+                  Passphrase (Optional)
                 </label>
                 <input
-                  id="port"
-                  name="port"
-                  type="number"
-                  className="form-input"
-                  placeholder="22"
-                  value={formData.port}
-                  onChange={handleInputChange}
-                />
-                {errors.port && <p className="text-red-400 text-sm mt-1">{errors.port}</p>}
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="username" className="form-label">
-                Username
-              </label>
-              <input
-                id="username"
-                name="username"
-                type="text"
-                className="form-input"
-                placeholder="user"
-                value={formData.username}
-                onChange={handleInputChange}
-              />
-              {errors.username && <p className="text-red-400 text-sm mt-1">{errors.username}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="authMethod" className="form-label">
-                Authentication Method
-              </label>
-              <select
-                id="authMethod"
-                name="authMethod"
-                className="form-input"
-                value={formData.authMethod}
-                onChange={handleInputChange}
-              >
-                <option value="password">Password</option>
-                <option value="publicKey">Private Key</option>
-              </select>
-            </div>
-
-            {formData.authMethod === 'password' ? (
-              <div>
-                <label htmlFor="password" className="form-label">
-                  Password
-                </label>
-                <input
-                  id="password"
-                  name="password"
+                  id="passphrase"
+                  name="passphrase"
                   type="password"
                   className="form-input"
-                  placeholder="Enter password"
-                  value={formData.password}
+                  placeholder="Enter passphrase if required"
+                  value={formData.passphrase}
                   onChange={handleInputChange}
                 />
-                {errors.password && <p className="text-red-400 text-sm mt-1">{errors.password}</p>}
               </div>
-            ) : (
-              <>
-                <div>
-                  <label htmlFor="privateKey" className="form-label">
-                    Private Key
-                  </label>
-                  <textarea
-                    id="privateKey"
-                    name="privateKey"
-                    rows={6}
-                    className="form-input"
-                    placeholder="-----BEGIN PRIVATE KEY-----"
-                    value={formData.privateKey}
-                    onChange={handleInputChange}
-                  />
-                  {errors.privateKey && <p className="text-red-400 text-sm mt-1">{errors.privateKey}</p>}
-                </div>
+            </>
+          )}
 
-                <div>
-                  <label htmlFor="passphrase" className="form-label">
-                    Passphrase (Optional)
-                  </label>
-                  <input
-                    id="passphrase"
-                    name="passphrase"
-                    type="password"
-                    className="form-input"
-                    placeholder="Enter passphrase if required"
-                    value={formData.passphrase}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </>
-            )}
-
-            <div className="flex space-x-3 pt-4">
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {isLoading ? (
-                  <span className="flex items-center justify-center">
-                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Creating...
-                  </span>
-                ) : (
-                  'Create Connection'
-                )}
-              </button>
-              
-              <button
-                type="button"
-                onClick={onCancel}
-                disabled={isLoading}
-                className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
+          <div className="flex space-x-3 pt-4">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex-1"
+            >
+              {isLoading ? (
+                <span className="flex items-center justify-center">
+                  <div className="loading-spinner mr-3"></div>
+                  Saving...
+                </span>
+              ) : (
+                'Save Connection'
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isLoading}
+              className="btn-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

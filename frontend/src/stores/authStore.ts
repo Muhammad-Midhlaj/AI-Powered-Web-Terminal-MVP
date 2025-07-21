@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User, AuthResponse, LoginRequest, RegisterRequest } from '@ai-terminal/shared';
+import { API_ENDPOINTS, apiRequest } from '../config/api';
 
 interface AuthState {
   user: User | null;
@@ -30,7 +31,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await fetch('/api/auth/login', {
+          const response = await fetch(API_ENDPOINTS.auth.login, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -68,7 +69,7 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         
         try {
-          const response = await fetch('/api/auth/register', {
+          const response = await fetch(API_ENDPOINTS.auth.register, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -115,24 +116,34 @@ export const useAuthStore = create<AuthState>()(
         set({ error: null });
       },
 
-      initializeAuth: () => {
-        const state = get();
-        if (state.token && state.user) {
-          // Verify token is still valid
-          fetch('/api/auth/verify', {
+      initializeAuth: async () => {
+        const { token } = get();
+        if (!token) return;
+
+        try {
+          const response = await fetch(API_ENDPOINTS.auth.verify, {
             headers: {
-              'Authorization': `Bearer ${state.token}`,
+              Authorization: `Bearer ${token}`,
             },
-          })
-          .then(response => {
-            if (!response.ok) {
-              // Token is invalid, logout
-              state.logout();
-            }
-          })
-          .catch(() => {
-            // Network error or invalid token, logout
-            state.logout();
+          });
+
+          if (!response.ok) {
+            throw new Error('Token verification failed');
+          }
+
+          const data = await response.json();
+          const user: User = data.data.user;
+
+          set({
+            user,
+            isAuthenticated: true,
+          });
+        } catch (error) {
+          console.error('Auth verification failed:', error);
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
           });
         }
       },
@@ -140,9 +151,8 @@ export const useAuthStore = create<AuthState>()(
     {
       name: 'auth-storage',
       partialize: (state) => ({
-        user: state.user,
         token: state.token,
-        isAuthenticated: state.isAuthenticated,
+        user: state.user,
       }),
     }
   )

@@ -1,26 +1,41 @@
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { Terminal } from '../components/Terminal';
 import { SSHConnectionForm } from '../components/SSHConnectionForm';
 import { useSocketStore } from '../stores/socketStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useSSHStore } from '../stores/sshStore';
 import { useAuthStore } from '../stores/authStore';
+import { SSHConnectionStatus } from '../../../shared/src/types';
+import { toast } from '../components/ui/toaster';
 
 export function TerminalPage() {
-  const { sessionId } = useParams<{ sessionId?: string }>();
-  const { connect, isConnected } = useSocketStore();
-  const { sessions, activeSessionId, setActiveSession } = useTerminalStore();
-  const { profiles, loadProfiles, createProfile, isLoading: sshLoading } = useSSHStore();
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const navigate = useNavigate();
   const { isAuthenticated } = useAuthStore();
+  const { 
+    sessions, 
+    activeSessionId, 
+    setActiveSession, 
+    addSession,
+    setLoading: setTerminalLoading 
+  } = useTerminalStore();
+  const { socket, connect: connectSocket } = useSocketStore();
+  const { 
+    profiles, 
+    loadProfiles, 
+    createProfile, 
+    isLoading: sshLoading 
+  } = useSSHStore();
+
   const [showSSHForm, setShowSSHForm] = useState(false);
 
-  // Connect to WebSocket when component mounts
+  // Connect to WebSocket when authenticated
   useEffect(() => {
-    if (isAuthenticated && !isConnected) {
-      connect();
+    if (isAuthenticated && !socket?.connected) {
+      connectSocket();
     }
-  }, [isAuthenticated, isConnected, connect]);
+  }, [isAuthenticated, socket?.connected, connectSocket]);
 
   // Load SSH profiles when authenticated
   useEffect(() => {
@@ -36,29 +51,101 @@ export function TerminalPage() {
     }
   }, [sessionId, activeSessionId, setActiveSession]);
 
-  // Use the first available session if no specific session is requested
-  const currentSessionId = sessionId || activeSessionId || (sessions.length > 0 ? sessions[0].id : null);
-
-  const handleCreateSSHProfile = async (data: any) => {
+  const handleCreateSSHProfile = async (data: {
+    profile: any;
+    credentials: any;
+  }) => {
     try {
       await createProfile(data);
       setShowSSHForm(false);
     } catch (error) {
-      // Error is handled in the store
+      console.error('Failed to create SSH profile:', error);
     }
   };
 
-  if (!isConnected) {
+  const handleConnect = async (profileId: string) => {
+    if (!socket?.connected) {
+      toast.error('WebSocket not connected. Please try again.');
+      return;
+    }
+
+    try {
+      setTerminalLoading(true);
+      
+      // Generate session ID
+      const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Create new session
+      const newSession = {
+        id: sessionId,
+        profileId: profileId,
+        status: SSHConnectionStatus.CONNECTING,
+        createdAt: new Date(),
+        lastActivity: new Date(),
+        title: profiles.find(p => p.id === profileId)?.name || 'Terminal Session'
+      };
+
+      // Add session to store
+      addSession(newSession);
+      
+      // Navigate to the new session
+      navigate(`/terminal/${sessionId}`);
+      
+      // Request SSH connection through WebSocket
+      socket.emit('ssh:connect', {
+        sessionId,
+        profileId
+      });
+
+      toast.success('Connecting to server...');
+      
+    } catch (error) {
+      console.error('Failed to connect:', error);
+      toast.error('Failed to initiate connection');
+    } finally {
+      setTerminalLoading(false);
+    }
+  };
+
+  // Show terminal if there's an active session
+  const currentSessionId = sessionId || activeSessionId;
+  const currentSession = sessions.find(s => s.id === currentSessionId);
+
+  // Debug logging
+  console.log('TerminalPage Debug:', {
+    sessionId,
+    activeSessionId,
+    currentSessionId,
+    sessionsCount: sessions.length,
+    currentSession,
+    isAuthenticated
+  });
+
+  if (!isAuthenticated) {
     return (
       <div className="flex items-center justify-center h-screen bg-gray-900">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto"></div>
-          <p className="text-gray-300 mt-4">Connecting to terminal server...</p>
+          <p className="text-gray-300 mt-4">Please log in to access the terminal.</p>
         </div>
       </div>
     );
   }
 
+  // If we have a sessionId but no current session, show loading
+  if (currentSessionId && !currentSession) {
+    return (
+      <div className="h-screen bg-terminal-bg flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-terminal-text mb-2">Connecting to terminal session...</p>
+          <p className="text-terminal-muted text-sm">Session ID: {currentSessionId?.slice(0, 12)}...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If no session at all, show the dashboard
   if (!currentSessionId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-terminal-bg via-gray-900 to-blue-900 flex items-center justify-center p-6">
@@ -115,7 +202,11 @@ export function TerminalPage() {
                           </div>
                         </div>
                       </div>
-                      <button className="btn-primary group-hover:scale-105 transition-transform">
+                      <button 
+                        onClick={() => handleConnect(profile.id)}
+                        className="btn-primary group-hover:scale-105 transition-transform"
+                        disabled={sshLoading}
+                      >
                         <svg className="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                         </svg>
@@ -209,9 +300,9 @@ export function TerminalPage() {
         
         <div className="flex items-center space-x-2">
           <div className="flex items-center space-x-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <div className={`w-2 h-2 rounded-full ${socket?.connected ? 'bg-green-500' : 'bg-red-500'}`}></div>
             <span className="text-sm text-gray-400">
-              {isConnected ? 'Connected' : 'Disconnected'}
+              {socket?.connected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
         </div>

@@ -66,7 +66,13 @@ export class ProfileController {
 
   private async createProfile(req: AuthenticatedRequest, res: Response): Promise<void> {
     try {
-      const { name, host, port, username, authMethod, password, privateKey, passphrase } = req.body;
+      const { profile, credentials } = req.body;
+
+      // Extract profile data
+      const { name, host, port, username, authMethod } = profile || {};
+      
+      // Extract credential data
+      const { password, privateKey, passphrase } = credentials || {};
 
       // Validate input
       if (!name || !host || !username || !authMethod) {
@@ -136,20 +142,20 @@ export class ProfileController {
       }
 
       // Encrypt credentials
-      const credentials: any = {
+      const credentialsToEncrypt: any = {
         authMethod
       };
 
       if (password) {
-        credentials.password = CryptoJS.AES.encrypt(password, ENCRYPTION_KEY).toString();
+        credentialsToEncrypt.password = CryptoJS.AES.encrypt(password, ENCRYPTION_KEY).toString();
       }
 
       if (privateKey) {
-        credentials.privateKey = CryptoJS.AES.encrypt(privateKey, ENCRYPTION_KEY).toString();
+        credentialsToEncrypt.privateKey = CryptoJS.AES.encrypt(privateKey, ENCRYPTION_KEY).toString();
       }
 
       if (passphrase) {
-        credentials.passphrase = CryptoJS.AES.encrypt(passphrase, ENCRYPTION_KEY).toString();
+        credentialsToEncrypt.passphrase = CryptoJS.AES.encrypt(passphrase, ENCRYPTION_KEY).toString();
       }
 
       // Create profile
@@ -170,18 +176,18 @@ export class ProfileController {
         sshPort,
         username,
         authMethod,
-        JSON.stringify(credentials)
+        JSON.stringify(credentialsToEncrypt)
       );
 
       // Get created profile (without encrypted credentials)
-      const profile = db.prepare(`
+      const createdProfile = db.prepare(`
         SELECT id, name, host, port, username, auth_method, created_at, last_used, is_active
         FROM ssh_profiles WHERE id = ?
       `).get(profileId);
 
       res.status(201).json({
         success: true,
-        data: profile
+        data: createdProfile
       });
 
     } catch (error) {
@@ -274,14 +280,14 @@ export class ProfileController {
       updateStmt.run(...values);
 
       // Get updated profile
-      const profile = db.prepare(`
+      const updatedProfile = db.prepare(`
         SELECT id, name, host, port, username, auth_method, created_at, last_used, is_active
         FROM ssh_profiles WHERE id = ?
       `).get(id);
 
       res.json({
         success: true,
-        data: profile
+        data: updatedProfile
       });
 
     } catch (error) {
@@ -339,13 +345,13 @@ export class ProfileController {
       const db = getDatabase();
 
       // Get profile with encrypted credentials
-      const profile = db.prepare(`
+      const dbProfile = db.prepare(`
         SELECT id, name, host, port, username, auth_method, encrypted_credentials
         FROM ssh_profiles 
         WHERE id = ? AND user_id = ? AND is_active = 1
       `).get(id, req.userId) as DatabaseProfile | undefined;
 
-      if (!profile) {
+      if (!dbProfile) {
         res.status(404).json({
           success: false,
           error: 'Profile not found'
@@ -360,7 +366,7 @@ export class ProfileController {
         data: {
           status: 'success',
           latency: Math.random() * 100 + 50, // Mock latency
-          message: `Successfully connected to ${profile.host}:${profile.port}`
+          message: `Successfully connected to ${dbProfile.host}:${dbProfile.port}`
         }
       });
 
@@ -405,4 +411,4 @@ export class ProfileController {
   public getRouter(): Router {
     return this.router;
   }
-} 
+}

@@ -61,9 +61,16 @@ export class SocketHandler {
     this.sshManager.on('data', this.handleSSHData.bind(this));
   }
 
-  private async handleSSHConnect(profileId: string): Promise<void> {
+  private async handleSSHConnect(data: { sessionId: string; profileId: string }): Promise<void> {
     try {
+      const { sessionId, profileId } = data;
       const db = getDatabase();
+      
+      // Emit connecting status
+      this.socket.emit('ssh:status', {
+        sessionId,
+        status: SSHConnectionStatus.CONNECTING
+      });
       
       // Get profile with encrypted credentials
       const profile = db.prepare(`
@@ -74,7 +81,7 @@ export class SocketHandler {
 
       if (!profile) {
         this.socket.emit('ssh:status', {
-          sessionId: profileId,
+          sessionId,
           status: SSHConnectionStatus.ERROR,
           error: 'Profile not found'
         });
@@ -100,22 +107,68 @@ export class SocketHandler {
       const connectionId = await this.sshManager.createConnection(sshCredentials);
       
       // Store session mapping
-      this.userSessions.set(profileId, connectionId);
+      this.userSessions.set(sessionId, connectionId);
 
-      // Update last used timestamp
-      db.prepare('UPDATE ssh_profiles SET last_used = datetime("now") WHERE id = ?').run(profileId);
+      // Update last used timestamp - FIX: Use single quotes for 'now'
+      db.prepare('UPDATE ssh_profiles SET last_used = datetime(\'now\') WHERE id = ?').run(profileId);
 
-      // Create session record
-      const sessionId = generateId();
+      // Create session record - FIX: Use single quotes for 'now'
       db.prepare(`
         INSERT INTO terminal_sessions (id, user_id, profile_id, status, created_at, last_activity)
         VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
       `).run(sessionId, this.socket.userId, profileId, SSHConnectionStatus.CONNECTED);
 
+      // Emit connected status
+      this.socket.emit('ssh:status', {
+        sessionId,
+        status: SSHConnectionStatus.CONNECTED,
+        profile: {
+          id: profile.id,
+          name: profile.name,
+          host: profile.host,
+          port: profile.port,
+          username: profile.username
+        }
+      });
+
+      // Set up SSH connection event handlers - Create specific handlers for this session
+      const dataHandler = (connId: string, data: string) => {
+        if (connId === connectionId) {
+          this.socket.emit('terminal:output', { sessionId, data });
+        }
+      };
+
+      const statusHandler = (connId: string, status: SSHConnectionStatus, error?: string) => {
+        if (connId === connectionId) {
+          this.socket.emit('ssh:status', {
+            sessionId,
+            status,
+            error
+          });
+          
+          if (status === SSHConnectionStatus.DISCONNECTED || status === SSHConnectionStatus.ERROR) {
+            this.userSessions.delete(sessionId);
+            // Clean up event listeners
+            this.sshManager.removeListener('data', dataHandler);
+            this.sshManager.removeListener('statusChange', statusHandler);
+          }
+        }
+      };
+
+      // Add event listeners
+      this.sshManager.on('data', dataHandler);
+      this.sshManager.on('statusChange', statusHandler);
+
+      // Clean up on socket disconnect
+      this.socket.on('disconnect', () => {
+        this.sshManager.removeListener('data', dataHandler);
+        this.sshManager.removeListener('statusChange', statusHandler);
+      });
+
     } catch (error) {
       console.error('SSH connect error:', error);
       this.socket.emit('ssh:status', {
-        sessionId: profileId,
+        sessionId: data?.sessionId,
         status: SSHConnectionStatus.ERROR,
         error: error instanceof Error ? error.message : 'Unknown error'
       });
@@ -143,11 +196,11 @@ export class SocketHandler {
     }
   }
 
-  private async handleTerminalInput(data: { sessionId: string; input: string }): Promise<void> {
+  private async handleTerminalInput(data: { sessionId: string; data: string }): Promise<void> {
     try {
       const connectionId = this.userSessions.get(data.sessionId);
-      if (connectionId) {
-        await this.sshManager.sendCommand(connectionId, data.input);
+      if (connectionId && data.data) {
+        await this.sshManager.sendCommand(connectionId, data.data);
       }
     } catch (error) {
       console.error('Terminal input error:', error);
@@ -239,7 +292,7 @@ export class SocketHandler {
   private async handleSessionCreate(profileId: string): Promise<void> {
     try {
       // This will be handled by handleSSHConnect
-      await this.handleSSHConnect(profileId);
+      await this.handleSSHConnect({ sessionId: generateId(), profileId });
     } catch (error) {
       console.error('Session create error:', error);
     }

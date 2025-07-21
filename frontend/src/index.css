@@ -106,15 +106,6 @@
   .loading-spinner {
     @apply animate-spin rounded-full h-5 w-5 border-2 border-terminal-muted border-t-terminal-text;
   }
-
-  /* Animations */
-  .animate-slide-in {
-    @apply animate-slide-in;
-  }
-  
-  .animate-fade-in {
-    @apply animate-fade-in;
-  }
 }
 
 /* Scrollbar styling for terminal */
